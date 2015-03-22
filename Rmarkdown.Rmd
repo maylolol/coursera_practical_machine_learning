@@ -1,0 +1,114 @@
+---
+title: "rmarkdown"
+author: "maylolol"
+date: "Sunday, March 22, 2015"
+output: html_document
+---
+
+
+  <h1>1. Getting the data</h1>
+
+  Firstly, I loaded the CSV files to R using getURL function in RCurl package and the read.csv function. <br />
+  The training CSV was assigned to training dataset. <br />
+  The testing CSV was assigned to testing dataset. <br />
+
+```{r}
+#loading data
+trainingCSV <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+testingCSV <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+
+library(RCurl)
+trainingFile <- getURL(trainingCSV, ssl.verifypeer = FALSE)
+testingFile <- getURL(testingCSV, ssl.verifypeer = FALSE)
+
+training <- read.csv(textConnection(trainingFile))
+testing <- read.csv(textConnection(testingFile))
+```
+
+  After that, I did some analysis on the data set. <br />
+  Found the training data consists of 19622 rows and testing data consists of 20 rows. 
+  Found there are 160 columns in the data set, and the name of outcome column name is “classe”.
+  Also, I found the data in “classe” are in 5 categories (A-E).
+  
+```{r}
+dim(training)
+dim(testing)
+colnames(training)
+table(training$classe)
+```
+
+  <h1>2. Preprocessing</h1>
+  
+  Then, I did data partitioning on the training set into 80% training set and 20% validation set, for the cross validation on my training model.
+```{r}
+library(caret)
+set.seed(55555)
+inTrain <- createDataPartition(training$classe, p=0.8, list=FALSE)
+trainingSet <- training[inTrain,]
+validationSet <- training[-inTrain,]
+dim(trainingSet)
+dim(validationSet)
+```
+  
+  After that, I removed the columns that near zero variables. 57 variables are removed.
+
+```{r}
+nzv <- nearZeroVar(trainingSet, saveMetrics = TRUE)
+nzv
+nzv <- nearZeroVar(trainingSet)
+trainingSet = trainingSet[, -nzv]
+dim(trainingSet)
+
+```
+
+  Then I moved the columns with missing values, as the random forest algorithm cannot use against a dataset with missing values. It also removes the description fields to increase the prediction accuracy (Found this from Google). 50 more variables are removed.
+  
+```{r}
+cntlength <- sapply(trainingSet, function(x) {
+    sum(!(is.na(x) | x == ""))
+})
+nullcol <- names(cntlength[cntlength < 0.6 * length(trainingSet$classe)])
+descriptcol <- c("X", "user_name", "raw_timestamp_part_1", "raw_timestamp_part_2", 
+    "cvtd_timestamp", "new_window", "num_window")
+excludecols <- c(descriptcol, nullcol)
+trainingSet <- trainingSet[, !names(trainingSet) %in% excludecols]
+dim(trainingSet)
+
+```
+  
+  <h1>3. Training</h1>
+  
+  Then I did training by using the train function in caret package using random forest algorithm. The accuracy is > 99%.
+  
+```{r}
+trControl <- trainControl(method="cv",number=5)
+modelFit <-train(classe ~. ,data=trainingSet,method="rf",   trControl=trControl,   prox=TRUE,allowParallel=TRUE, do.trace=TRUE)
+print(modelFit)
+print(modelFit$finalModel)
+```
+
+  After that, I used the predict function with the validation set to test against the model for cross validation before using it on the test set. The accuracy is > 99% again.
+
+```{r}
+validation <- predict(modelFit, newdata=validationSet)
+confusionMatrix(validation, validationSet$classe)
+```
+
+
+  <h1>4. Prediction </h1>
+  Finally, I do prediction on the testing set with the model and use the script provided to generate the test file for uploading to the course website.
+  
+```{r}
+predictTest <- predict(modelFit, testing)
+predictTest
+answers = rep("A", 20)
+pml_write_files = function(x){
+  n = length(x)
+  for(i in 1:n){
+    filename = paste0("problem_id_",i,".txt")
+    write.table(x[i],file=filename,quote=FALSE,row.names=FALSE,col.names=FALSE)
+  }
+}
+answer<-predictTest
+pml_write_files(answers)
+```
